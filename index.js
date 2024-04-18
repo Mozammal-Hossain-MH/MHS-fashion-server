@@ -27,6 +27,8 @@ const client = new MongoClient(uri, {
 
 const itemsCollection = client.db('MHSfashion').collection('items');
 const ratingsCollection = client.db('MHSfashion').collection('ratings');
+const usersCollection = client.db('MHSfashion').collection('users');
+const cartsCollection = client.db('MHSfashion').collection('carts');
 
 async function run() {
     try {
@@ -84,10 +86,126 @@ async function run() {
             res.send(result);
         })
 
+        app.get('/related/:itemName', async (req, res) => {
+            const name = req.params.itemName;
+            const result = await itemsCollection.aggregate([
+                {
+                    $match: { category: name }
+                },
+                {
+                    $sample: { size: 4 }
+                }
+            ]).toArray();
+            res.send(result);
+        })
+
 
         // ratings collection
         app.get('/ratings', async (req, res) => {
             const result = await ratingsCollection.find().toArray();
+            res.send(result);
+        })
+
+        // users collection
+
+        app.post('/users', async (req, res) => {
+            const user = req.body;
+            const result = await usersCollection.insertOne(user)
+            res.send(result);
+        })
+
+        // carts collection
+        app.get('/carts', async (req, res) => {
+            const email = req.query.email;
+            const filter = { email }
+            const result = await cartsCollection.find(filter).toArray();
+            res.send(result);
+        })
+        app.get('/cart', async (req, res) => {
+            const email = req.query.email;
+            const id = req.query.id;
+            const filter = { email, id }
+            const result = await cartsCollection.find(filter).toArray();
+            res.send(result);
+        })
+
+        app.get('/cartMenu', async (req, res) => {
+            const id = req.query.id;
+            const ids = id.split(',');
+
+            const idsToMatch = ids.filter(id => /^[0-9a-fA-F]{24}$/.test(id))
+                .map(id => new ObjectId(id));
+
+
+
+            const result = await itemsCollection.aggregate([
+                {
+                    $match: {
+                        _id: {
+                            $in: idsToMatch
+                        }
+                    }
+                },
+                {
+                    $project: {
+                        name: 1,
+                        img: 1,
+                        offerPrice: 1
+                    }
+                }
+            ]).toArray()
+            res.send(result);
+
+        })
+
+        app.post('/carts', async (req, res) => {
+            const item = req.body;
+            const result = await cartsCollection.insertOne(item)
+            res.send(result);
+        })
+
+        app.patch('/cart', async (req, res) => {
+            const email = req.query.email;
+            const id = req.query.id;
+            const productInfo = req.body;
+
+            const newSize = productInfo.size;
+            const newQuantity = productInfo.quantity;
+
+            const filterIfExist = {
+                email,
+                id,
+                'productInfo.size': newSize
+            }
+
+            const updateIfExist = {
+                $inc: {
+                    'productInfo.$.quantity': newQuantity
+                }
+            }
+
+            const existingProduct = await cartsCollection.findOneAndUpdate(filterIfExist, updateIfExist);
+
+            if (!existingProduct) {
+                const filter = {
+                    email, id
+                }
+                const option = { upsert: true }
+                const updatedDoc = {
+                    $push: {
+                        productInfo
+                    }
+                }
+                const result = await cartsCollection.updateOne(filter, updatedDoc, option)
+            }
+            res.json({ success: true });
+        })
+
+        app.delete('/carts/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+
+            const result = await cartsCollection.deleteOne(query);
             res.send(result);
         })
 
